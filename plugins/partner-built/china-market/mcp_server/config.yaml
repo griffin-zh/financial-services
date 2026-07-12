@@ -1,0 +1,24 @@
+# china-market MCP server config —— 三源 (akshare/baostock/tushare) + 缓存 + 动态路由
+# storage.path 相对 plugin 目录; MCP server 以 plugin root 作为 cwd 启动。
+
+sources:
+  akshare:
+    enabled: true          # tier-1 主源, 覆盖最广, 恒开 (无 token)
+  baostock:
+    enabled: true          # tier-2, 免费/交易所源/A股最稳, 作双写交叉第二源 (无 token)
+  tushare:
+    enabled: false         # tier-3, 需 token; 填 token 后设 true, 启用特色数据(北向/龙虎榜)交叉
+    token: ""              # 在 https://tushare.pro 注册获取; 留空则 router 自动跳过
+
+storage:
+  path: ./data_cache/market
+
+cache:
+  realtime_ttl: 5          # 实时快照短 TTL (秒), TTL 内不重复打上游
+
+router:
+  dual_write: true         # 稳定平面 (日线/列表) 双写交叉开关
+  breaker_threshold: 3     # 单源连续失败几次触发 circuit breaker 熔断
+  cooldown: 60             # 熔断冷却秒数, 之后半开探活
+  retries: 2               # 每源调用 retry 次数
+  timeout: 15              # 单次调用超时 (秒)

@@ -1,5 +1,5 @@
 {
-  "name": "claude-for-financial-services",
+  "name": "financial-services-local",
   "owner": {
     "name": "Matt Piccolella"
   },
@@ -111,6 +111,11 @@
       "displayName": "S&P Global",
       "source": "./plugins/partner-built/spglobal",
       "description": "S&P Global - Financial data and analytics skills including company tearsheets, earnings previews, and transaction summaries"
+    },
+    {
+      "name": "china-market",
+      "source": "./plugins/partner-built/china-market",
+      "description": "China A-share market data (Shanghai/Shenzhen) + market context (CNY, China 10Y bond risk-free, 申万行业, 巨潮 filings) for financial-services skills"
     },
     {
       "name": "claude-for-msft-365-install",

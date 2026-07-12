@@ -1,0 +1,6 @@
+# Python 运行时产物
+__pycache__/
+*.pyc
+
+# 运行时数据缓存 (parquet cache + 失败日志), 非 VCS 内容
+data_cache/
