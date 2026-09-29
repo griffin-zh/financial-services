@@ -1,21 +1,10 @@
 {
   "name": "china-market",
-  "description": "A-share market data (Shanghai/Shenzhen) for financial-services skills — self-contained stdio MCP server over akshare+baostock+tushare with health-aware routing, dual-write cross-check, short-TTL realtime cache and whitelisted web-fetch fallback; injects China market context (CNY, China 10Y risk-free, 申万行业, 巨潮 filings) for DCF/comps/earnings skills.",
-  "version": "0.2.0",
+  "description": "A-share market data (Shanghai/Shenzhen) for financial-services skills — a shared remote MCP service (SSE) over akshare+baostock+tushare with health-aware routing, dual-write cross-check, short-TTL realtime cache and whitelisted web-fetch fallback; injects China market context (CNY, China 10Y risk-free, 申万行业, 巨潮 filings) for DCF/comps/earnings skills. MCP endpoint declared in .mcp.json.",
+  "version": "0.3.0",
   "author": {
     "name": "study workspace"
   },
   "license": "Apache-2.0",
-  "keywords": ["china", "a-share", "akshare", "shanghai", "shenzhen", "cny"],
-  "mcpServers": {
-    "china-market": {
-      "type": "stdio",
-      "command": "D:/tools/miniconda/envs/financial/python.exe",
-      "args": ["-m", "mcp_server.server"],
-      "cwd": "${CLAUDE_PLUGIN_ROOT}",
-      "env": {
-        "PYTHONPATH": "${CLAUDE_PLUGIN_ROOT}"
-      }
-    }
-  }
+  "keywords": ["china", "a-share", "akshare", "shanghai", "shenzhen", "cny"]
 }

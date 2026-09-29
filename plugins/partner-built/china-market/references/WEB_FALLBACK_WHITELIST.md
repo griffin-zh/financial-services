@@ -29,6 +29,32 @@
 
 ---
 
+## 监管官方(证监会 / 交易所 / 央行 —— 处罚·问询·披露原文)
+
+**何时用**:`get_disclosure_search` / `get_interactive_qa` 返回 `web_fallback:true`,或需要监管
+**原文**(处罚决定书、问询函、监管措施)而巨潮披露检索按标题关键词过滤未命中时。这一组同时
+是 `cn-deep-research` workflow「监管官方组」`allowed_domains` 的**单一源**(workflow 内联常量
+须与本表保持一致)。
+
+| 数据类型 | 白名单站点 | URL pattern | 抓取方式 | 口径坑 |
+|---|---|---|---|---|
+| 定期/临时公告原文(最权威) | 巨潮资讯 | `cninfo.com.cn` 搜代码 → 公告 PDF | WebFetch **PDF 直链**(静态最稳) | 原始披露,口径最准 |
+| 行政处罚 / 立案 / 监管措施 | 证监会 | `csrc.gov.cn` 行政处罚决定/监管措施栏目 | WebFetch | 部分为图片版 PDF,OCR 不保证 |
+| 问询函 / 关注函 / 监管工作函 | 上交所 | `sse.com.cn` 监管信息公开 / 信息披露 | WebFetch | 沪市;e互动问答另见 MCP `get_interactive_qa` |
+| 问询函 / 关注函 / 纪律处分 | 深交所 | `szse.cn` 监管信息公开 | WebFetch | 深市/北交所(北交所另 `bse.cn`) |
+| 货币政策 / 金融数据 / 行政处罚 | 央行 | `pbc.gov.cn` | WebFetch | 宏观口径,非个股 |
+| 外汇 / 跨境资本 | 外汇局 | `safe.gov.cn` | WebFetch | 宏观口径 |
+| 银行/保险监管 / 处罚 | 金监总局 | `nfra.gov.cn` | WebFetch | 银行口径 akshare 另有 `bank_fjcf_table_detail` |
+
+**监管信息强提醒**:
+- **CSRC 个股处罚、交易所问询函无 akshare 专用结构化接口** —— `get_disclosure_search(keyword=...)`
+  是按巨潮公告**标题关键词的近似检索**,可能漏(未进巨潮的直接挂 csrc.gov.cn 的处罚不覆盖)。
+  报告须显式标注「监管项为近似检索,非官方处罚库全量」,并对高风险结论回落到官方站点核对原文。
+- 官方站点(csrc/sse/szse/pbc)可信度 **高于**持牌财经媒体转载,**远高于**自媒体转载。合流冲突
+  时以官方原文 / MCP 结构化为准。
+
+---
+
 ## 港股(`.HK` —— china-market MCP 完全不覆盖,直接走这里)
 
 | 数据类型 | 白名单站点 | URL pattern | 抓取方式 | 口径坑 |

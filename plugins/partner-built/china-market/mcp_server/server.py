@@ -1,8 +1,12 @@
 """China A-share market data MCP server.
 
-自包含 stdio MCP server: 直连 akshare / baostock / tushare 三源, 经 `SourceRouter`
+自包含 MCP server: 直连 akshare / baostock / tushare 三源, 经 `SourceRouter`
 做 health-aware 动态路由 + 稳定平面双写交叉, 经 `Cache` 抽象做历史 parquet 缓存 +
 实时短 TTL 缓存。**不再依赖 Stock/ai_quant** (本机已无该目录)。
+
+传输 env 驱动: `MCP_TRANSPORT` 默认 stdio (本地插件 / 调试); 预构建镜像里设为 sse,
+监听 `MCP_HOST`/`MCP_PORT`, 供 oh-my-pi 与远程 Claude Code 同连一个实例。配置/缓存
+路径可用 `CHINA_MARKET_CONFIG` / `CHINA_MARKET_CACHE_DIR` 覆盖, `TUSHARE_TOKEN` 注入 token。
 
 为什么存在: 官方 financial-services connectors (Daloopa/FactSet/Kensho) 不覆盖 A 股。
 本 server 补这个缺口, 且核心 skill 软引用 MCP ("if a fundamentals provider is
@@ -15,6 +19,7 @@ discrepancy, warnings, web_fallback} —— 让上层 skill 能感知数据源�
 
 from __future__ import annotations
 
+import os
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -39,12 +44,24 @@ PLUGIN_ROOT = Path(__file__).resolve().parent.parent
 logger.remove()
 logger.add(sys.stderr, level="INFO")
 
-_config_path = PLUGIN_ROOT / "mcp_server" / "config.yaml"
+_config_path = Path(
+    os.getenv("CHINA_MARKET_CONFIG", str(PLUGIN_ROOT / "mcp_server" / "config.yaml"))
+)
 with _config_path.open("r", encoding="utf-8") as f:
     _config = yaml.safe_load(f) or {}
 
+# 允许用 env 覆盖 tushare token (容器 / CI 注入; 留空则 router 自动跳过 tushare)。
+_ts_token = os.getenv("TUSHARE_TOKEN", "").strip()
+if _ts_token:
+    _config.setdefault("sources", {})["tushare"] = {"enabled": True, "token": _ts_token}
+
 _storage = _config.setdefault("storage", {})
-_cache_dir = (PLUGIN_ROOT / _storage.get("path", "./data_cache/market")).resolve()
+# 缓存目录: 默认相对 plugin root; 容器 / 远程部署用 CHINA_MARKET_CACHE_DIR 覆盖到挂载卷。
+_cache_env = os.getenv("CHINA_MARKET_CACHE_DIR", "").strip()
+if _cache_env:
+    _cache_dir = Path(_cache_env).resolve()
+else:
+    _cache_dir = (PLUGIN_ROOT / _storage.get("path", "./data_cache/market")).resolve()
 _realtime_ttl = float(_config.get("cache", {}).get("realtime_ttl", 5.0))
 
 _router = build_router(_config)
@@ -53,7 +70,17 @@ _realtime_cache = InMemoryTTLCache(default_ttl=_realtime_ttl)  # 实时快照, �
 
 logger.info(f"china-market MCP ready. cache_dir={_cache_dir} realtime_ttl={_realtime_ttl}s")
 
-mcp = FastMCP("china-market")
+# transport: 默认 stdio (本地插件 / 调试); 容器镜像里由 MCP_TRANSPORT=sse 覆盖并监听 host/port。
+# 同一份代码既供 Claude Code(stdio 或远程连预发布镜像)也供 oh-my-pi(SSE)消费。
+_transport = os.getenv("MCP_TRANSPORT", "stdio")
+if _transport == "stdio":
+    mcp = FastMCP("china-market")
+else:
+    mcp = FastMCP(
+        "china-market",
+        host=os.getenv("MCP_HOST", "0.0.0.0"),
+        port=int(os.getenv("MCP_PORT", "8080")),
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -286,6 +313,61 @@ def get_stock_news(limit: int = 30) -> dict[str, Any]:
 
 
 # --------------------------------------------------------------------------- #
+# 监管 / 披露 / 投资者互动 tools (中文深度调研专用, 有序 fallback)              #
+# --------------------------------------------------------------------------- #
+@mcp.tool()
+def get_disclosure_search(
+    symbol: str,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    market: str = "沪深京",
+    keyword: str | None = None,
+) -> dict[str, Any]:
+    """检索个股的巨潮信息披露公告 (监管/披露信息结构化直连主力).
+
+    问询函回复、行政处罚、监管措施、立案等以临时/定期公告形式落在巨潮, 可按代码 +
+    日期窗口拉, 再用 keyword 按公告标题过滤逼近「监管事项」。这是「监管信息结构化直连」
+    的首选, 不必先走 WebSearch。
+
+    Args:
+        symbol: 股票代码, 6 位或后缀 .SH/.SZ. 例: "600519.SH".
+        start_date: YYYY-MM-DD, 默认 365 天前.
+        end_date: YYYY-MM-DD, 默认今天.
+        market: 巨潮市场域, 默认 "沪深京" (可选 "沪深"/"沪市"/"深市"/"北交所").
+        keyword: 公告标题过滤正则. 监管近似检索传 "问询函|关注函|处罚|立案|监管|警示函".
+
+    Returns:
+        统一返回体, 归一列含 title/type/date/url/source. web_fallback=True 时上层
+        应按白名单 (巨潮 cninfo.com.cn / 交易所官网 sse/szse) web-fetch 原始公告。
+        注意: CSRC 处罚 / 交易所问询函无专用结构化接口, 此为标题关键词近似, 非官方全量。
+    """
+    start_date = start_date or _days_ago(365)
+    end_date = end_date or _today()
+    return _pack_single(
+        _router.get_disclosure(symbol, start_date, end_date, market, keyword),
+        max_rows=200, symbol=symbol, keyword=keyword,
+    )
+
+
+@mcp.tool()
+def get_interactive_qa(symbol: str, limit: int = 20) -> dict[str, Any]:
+    """获取投资者互动问答 (深证互动易 / 上证 e 互动). akshare best-effort.
+
+    业绩说明会外的一手 Q&A: 沪市走上证 e 互动 (问答一表), 深市/北交所走深证互动易。
+    对监管关注、经营异动、市场传闻的公司回应有一手价值。
+
+    Args:
+        symbol: 股票代码, 6 位或后缀 .SH/.SZ. 例: "300750.SZ".
+        limit: 问答条数上限, 默认 20.
+
+    Returns:
+        统一返回体, 归一列含 question/answer/asker/ask_time/answer_time/source。
+        web_fallback=True 时上层可按白名单交易所互动平台页 web-fetch。
+    """
+    return _pack_single(_router.get_interactive(symbol, limit), max_rows=limit, symbol=symbol)
+
+
+# --------------------------------------------------------------------------- #
 # 无外部依赖的常量 tool + 健康度                                                #
 # --------------------------------------------------------------------------- #
 @mcp.tool()
@@ -326,7 +408,8 @@ def get_source_health() -> dict[str, Any]:
 
 
 def main() -> None:
-    mcp.run()
+    logger.info(f"Starting china-market MCP server (transport={_transport})")
+    mcp.run(transport=_transport)
 
 
 if __name__ == "__main__":

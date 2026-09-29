@@ -15,6 +15,8 @@ description: "Explicit data query skill for the china-market MCP server. Use whe
 | `get_realtime_quote` | 实时行情 + 名称 + 涨跌幅 | `symbols: list[str]` | 实时·短 TTL 缓存 |
 | `get_financial_report` | 财务三大表 | `symbol`, `report ∈ {income,balance,cashflow}`, `period ∈ {annual,quarterly}` | 稳定·有序 fallback |
 | `get_stock_notices` | 个股公告 (年报/中报/季报/重大事项) | `symbol`, `limit` | best-effort |
+| `get_disclosure_search` | 巨潮披露检索 (监管/披露结构化直连) | `symbol`, `start_date`, `end_date`, `market="沪深京"`, `keyword` | best-effort |
+| `get_interactive_qa` | 投资者互动问答 (深证互动易/上证e互动) | `symbol`, `limit` | best-effort |
 | `get_stock_news` | 全市场财经新闻 | `limit` | best-effort |
 | `get_north_flow` | 北向资金 (沪股通+深股通) | — | 特色·有序 fallback |
 | `get_dragon_tiger` | 单日龙虎榜 | `date` | 特色·有序 fallback |
@@ -74,6 +76,8 @@ log mode 记一条到 `data_cache/failure_log.jsonl`, 供日后 reflect 归纳�
 | "茅台 2023 年报" | `get_financial_report("600519.SH", "income", "annual")` + balance/cashflow |
 | "今天北向资金流向" | `get_north_flow()` |
 | "宁德时代最近有什么公告" | `get_stock_notices("300750.SZ", limit=20)`, web_fallback 则查巨潮 |
+| "茅台有没有被监管问询/处罚" | `get_disclosure_search("600519.SH", keyword="问询函\|处罚\|立案\|监管\|警示")`, 空则查 csrc/sse/szse |
+| "宁德时代互动易问了啥" | `get_interactive_qa("300750.SZ", limit=20)` |
 | "腾讯 00700.HK 走势" | china-market 不覆盖港股 → 白名单 web-fetch (AAStocks/雪球港股) |
 | "哪个数据源老挂" | `get_source_health()` |
 

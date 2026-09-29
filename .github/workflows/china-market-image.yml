@@ -1,0 +1,54 @@
+name: china-market-image
+
+# 把 partner-built/china-market 的 MCP server 打成预构建镜像发布到 GHCR。
+# 下游 (financial-product) compose 直接 `image:` 拉这个镜像运行单一实例,
+# 无需持有任何 china-market 代码。services 既是代码源,也是服务(镜像)源。
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "plugins/partner-built/china-market/mcp_server/**"
+      - ".github/workflows/china-market-image.yml"
+    tags:
+      - "china-market-v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/china-market-mcp
+
+jobs:
+  build-push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Derive image tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          # main → :latest + :sha-<sha>; tag china-market-vX.Y.Z → :X.Y.Z
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,prefix=sha-
+            type=match,pattern=china-market-v(.*),group=1
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: plugins/partner-built/china-market/mcp_server
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}

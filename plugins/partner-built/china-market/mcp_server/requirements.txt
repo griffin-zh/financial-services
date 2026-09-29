@@ -1,5 +1,5 @@
 mcp>=1.2.0
-akshare>=1.12.0
+akshare>=1.12.0  # 监管/披露 tool 需 ≥1.10.74 (stock_zh_a_disclosure_report_cninfo / stock_irm_cninfo / stock_sns_sseinfo)
 baostock>=0.8.8
 tushare>=1.4.0
 pandas>=2.0.0

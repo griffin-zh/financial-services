@@ -140,6 +140,14 @@ class DataSource(ABC):
     def fetch_news(self, limit: int) -> pd.DataFrame:
         raise SourceUnsupported(f"{self.name} 不支持 news")
 
+    def fetch_disclosure(
+        self, symbol: str, start: str, end: str, market: str, keyword: Optional[str]
+    ) -> pd.DataFrame:
+        raise SourceUnsupported(f"{self.name} 不支持 disclosure")
+
+    def fetch_interactive(self, symbol: str, limit: int) -> pd.DataFrame:
+        raise SourceUnsupported(f"{self.name} 不支持 interactive")
+
 
 class AkshareSource(DataSource):
     """akshare adapter (自包含, 直连 akshare 库)。覆盖最广, 作 tier-1 主源。"""
@@ -148,6 +156,7 @@ class AkshareSource(DataSource):
     capabilities = {
         "daily", "realtime", "financial", "stock_list",
         "north_flow", "dragon_tiger", "notices", "news",
+        "disclosure", "interactive",
     }
 
     def fetch_daily(self, symbol: str, start: str, end: str) -> pd.DataFrame:
@@ -257,6 +266,66 @@ class AkshareSource(DataSource):
         df = ak.stock_info_global_em()
         if df is None or df.empty:
             raise SourceError("akshare 财经新闻返回空")
+        return df.head(limit)
+
+    def fetch_disclosure(
+        self, symbol: str, start: str, end: str, market: str, keyword: Optional[str]
+    ) -> pd.DataFrame:
+        # 巨潮「信息披露公告-沪深京」结构化检索。监管/披露信息的结构化直连主力:
+        # 问询函回复、处罚公告、监管措施都以临时/定期公告形式落在这里, 可按
+        # symbol + 日期窗口拉, 再按标题本地过滤 keyword (兼容无 keyword 形参的版本)。
+        import akshare as ak
+
+        df = ak.stock_zh_a_disclosure_report_cninfo(
+            symbol=_code6(symbol),
+            market=market,
+            start_date=start.replace("-", ""),
+            end_date=end.replace("-", ""),
+        )
+        if df is None or df.empty:
+            raise SourceError("akshare 巨潮披露检索返回空")
+        # 巨潮返回中文列 (代码/简称/公告标题/公告时间/公告链接), 归一化;
+        # 版本间列名可能漂移 (旧版曾用 网址/公告类型), 只 rename 存在的列, 其余原样保留。
+        rename = {
+            "代码": "code", "简称": "name", "公告标题": "title",
+            "公告类型": "type", "公告时间": "date",
+            "公告链接": "url", "网址": "url",
+        }
+        df = df.rename(columns={k: v for k, v in rename.items() if k in df.columns})
+        df["source"] = "cninfo"
+        if keyword:
+            # 标题列本地正则过滤 —— 传 keyword="问询函|处罚|立案|监管" 即得监管近似检索
+            title_col = "title" if "title" in df.columns else df.columns[0]
+            df = df[df[title_col].astype(str).str.contains(keyword, na=False, regex=True)]
+            if df.empty:
+                raise SourceError(f"披露检索无匹配 keyword={keyword}")
+        return df
+
+    def fetch_interactive(self, symbol: str, limit: int) -> pd.DataFrame:
+        # 投资者互动问答: 沪市走上证 e 互动 (单表含问答), 深市/北交所走深证互动易。
+        # best-effort; 接口较新 (akshare ≥1.10.73/74), 挂了让上层降级 web_fallback。
+        import akshare as ak
+
+        code = _code6(symbol)
+        if _suffix_of(code) == "SH":
+            df = ak.stock_sns_sseinfo(symbol=code)
+            src = "sse_einteract"
+        else:
+            # 互动易: stock_irm_cninfo 返回提问 (含回答列 if 版本支持)
+            df = ak.stock_irm_cninfo(symbol=code)
+            src = "szse_irm"
+        if df is None or df.empty:
+            raise SourceError("akshare 投资者互动问答返回空")
+        rename = {
+            "股票代码": "code", "股票简称": "name", "公司简称": "name",
+            "问题": "question", "回答": "answer", "回答内容": "answer",
+            "提问者": "asker", "回答者": "answerer",
+            "提问时间": "ask_time", "问题时间": "ask_time",
+            "回答时间": "answer_time", "更新时间": "answer_time",
+            "来源": "src_platform", "问题来源": "src_platform",
+        }
+        df = df.rename(columns={k: v for k, v in rename.items() if k in df.columns})
+        df["source"] = src
         return df.head(limit)
 
 
@@ -621,6 +690,14 @@ class SourceRouter:
 
     def get_news(self, limit: int):
         return self._dispatch_single("fetch_news", "news", (limit,))
+
+    def get_disclosure(self, symbol: str, start: str, end: str, market: str, keyword):
+        return self._dispatch_single(
+            "fetch_disclosure", "disclosure", (symbol, start, end, market, keyword)
+        )
+
+    def get_interactive(self, symbol: str, limit: int):
+        return self._dispatch_single("fetch_interactive", "interactive", (symbol, limit))
 
     def health_report(self) -> dict[str, Any]:
         return {name: h.snapshot() for name, h in self._health.items()}
